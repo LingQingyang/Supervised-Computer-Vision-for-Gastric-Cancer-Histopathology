@@ -111,7 +111,7 @@ o	本地：
 pip install segmentation-models-pytorch
 cp U_Net.pth ./models/
 
-🔹 模型权重保存与加载说明
+模型权重保存与加载说明
 在代码中，U-Net 和 ResNet 的训练脚本都会在最后保存模型权重，并在推理脚本 (gastric_cancer_main.py) 中加载。由于路径在 Google Colab 和 本地 GPU 环境下不同，需要特别说明。
 ________________________________________
 Google Colab 默认行为
