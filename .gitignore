@@ -1,0 +1,4 @@
+# Download checkpoint assets from Releases instead of committing large binaries.
+*.pth
+__pycache__/
+.ipynb_checkpoints/

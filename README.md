@@ -1,399 +1,124 @@
-# Gastric Cancer Histopathology Pipeline
+# Supervised Computer Vision for Gastric Cancer Histopathology
 
-A two-stage deep learning pipeline for **gastric cancer histopathology image analysis**, combining **lesion segmentation** and **image classification**.
+A supervised learning internship project combining **U-Net lesion segmentation** with **mask-guided ResNet18 classification** of gastric histopathology images.
 
-This repository contains three Colab-exported Python scripts:
-- **`gastric_cancer_u_net_train.py`**: train a U-Net model to segment lesion regions from RGB pathology images
-- **`gastric_cancer_resnet_train.py`**: train a ResNet-based classifier on a 4-channel input composed of the RGB image plus a binary mask
-- **`gastric_cancer_main.py`**: run end-to-end inference from image to predicted mask to final class label
+**[Training results](results/README.md) · [Model weights](https://github.com/LingQingyang/Supervised-Computer-Vision-for-Gastric-Cancer-Histopathology/releases/tag/archived-training-results-v1) · [Segmentation code](gastric_cancer_u_net_train.py) · [Classification code](gastric_cancer_resnet_train.py) · [Inference code](gastric_cancer_main.py)**
 
----
+## Results at a glance
 
-## Project Overview
+The recovered experiment archive contains four training curves spanning **20 epochs** and the two saved model checkpoints. The original figures are displayed below without modification.
 
-The core idea of this project is to use **segmentation as structural guidance for classification**.
+| Stage | Observed training trend | Approximate final value read from the figure |
+| --- | --- | --- |
+| U-Net segmentation | BCE loss decreases; Dice generally increases | Loss ≈ 0.18; Dice ≈ 0.83 |
+| ResNet18 classification | Cross-entropy decreases; accuracy generally increases | Loss ≈ 0.05; accuracy ≈ 98% |
 
-Instead of classifying gastric cancer pathology images directly from RGB inputs alone, the workflow first predicts a lesion mask with U-Net and then concatenates the predicted mask with the original image. The resulting 4-channel input is passed to a modified ResNet classifier.
+**These are training metrics.** The archive contains no raw epoch logs or held-out evaluation report, so the values above are approximate visual readings, not exact measurements or test performance. The committed scripts default to five epochs; the archive documents a longer run whose complete configuration was not supplied.
 
-Pipeline:
+| U-Net training loss | U-Net training Dice |
+| --- | --- |
+| ![U-Net BCE training loss over 20 epochs](results/figures/unet_training_loss_curve.png) | ![U-Net training Dice over 20 epochs](results/figures/unet_dice_score_curve.png) |
 
-1. **Input RGB histopathology image**
-2. **U-Net** predicts a binary lesion mask
-3. **RGB image + predicted mask** are concatenated into a 4-channel tensor
-4. **ResNet18** predicts one of three classes:
-   - `Normal`
-   - `CancerType1`
-   - `CancerType2`
+| ResNet18 training loss | ResNet18 training accuracy |
+| --- | --- |
+| ![ResNet18 cross-entropy training loss over 20 epochs](results/figures/resnet_training_loss_curve.png) | ![ResNet18 training accuracy over 20 epochs](results/figures/resnet_accuracy_curve.png) |
 
-This design aims to inject region-aware information into the classifier rather than relying only on global texture cues.
+See the [results guide](results/README.md) for the metric definitions, original file inventory, checkpoint downloads, and checksums.
 
----
+## Pipeline
 
-## Repository Structure
+```mermaid
+flowchart LR
+    A[RGB histopathology image] --> B[U-Net / ResNet34 encoder]
+    B --> C[Predicted binary lesion mask]
+    A --> D[Concatenate RGB and mask]
+    C --> D
+    D --> E[ResNet18 / 4 input channels]
+    E --> F[Three-class prediction]
+```
+
+The segmentation stage provides spatial information to the classifier. During **classifier training**, the fourth channel is the dataset's **annotated mask**. During **inference**, it is the **predicted U-Net mask**. This distinction matters when interpreting the classifier's training accuracy: it does not measure the performance of the complete predicted-mask pipeline on unseen images.
+
+## Models and implementation
+
+| Component | Implementation |
+| --- | --- |
+| Segmentation | `segmentation-models-pytorch` U-Net; ResNet34 encoder initialized with ImageNet weights; 3 input channels; 1 output channel |
+| Segmentation objective | `BCEWithLogitsLoss`; sigmoid and a 0.5 threshold for Dice calculation |
+| Classification | ImageNet-initialized ResNet18 backbone; input convolution replaced with a 4-channel convolution; output layer replaced with a 3-class layer |
+| Classification objective | `CrossEntropyLoss`; argmax prediction for accuracy |
+| Training defaults in source | Adam, learning rate `1e-4`, batch size `4`, `5` epochs per stage |
+| Image preparation | RGB conversion; 512 × 512 tensors; ImageNet RGB normalization |
+| Mask preparation | Grayscale conversion; nearest-neighbour resizing; thresholding to binary values |
+| Training augmentation | Synchronized horizontal/vertical flips and rotations in multiples of 90 degrees |
+
+The replaced input convolution and classification head are newly initialized layers. The inference script uses the display labels `Normal`, `CancerType1`, and `CancerType2`; verify their correspondence with the dataset's integer labels before interpreting predictions. The archive does not supply clinical subtype definitions.
+
+## Repository layout
 
 ```text
-Gastric_Cancer/
+.
 ├── README.md
-├── gastric_cancer_u_net_train.py       # U-Net training script
-├── gastric_cancer_resnet_train.py      # ResNet training script
-└── gastric_cancer_main.py              # End-to-end inference and visualisation
+├── gastric_cancer_u_net_train.py       # Original segmentation training export
+├── gastric_cancer_resnet_train.py      # Original classification training export
+├── gastric_cancer_main.py              # Original inference/visualisation export
+└── results/
+    ├── README.md                      # Results, interpretation, and downloads
+    ├── SHA256SUMS.txt                 # Checksums of all six recovered files
+    └── figures/
+        ├── unet_training_loss_curve.png
+        ├── unet_dice_score_curve.png
+        ├── resnet_training_loss_curve.png
+        └── resnet_accuracy_curve.png
 ```
 
----
+`U_Net.pth` and `ResNet.pth` are available as **[Release assets](https://github.com/LingQingyang/Supervised-Computer-Vision-for-Gastric-Cancer-Histopathology/releases/tag/archived-training-results-v1)**. Keeping the large checkpoints outside Git history makes the code and results gallery easier to clone. All six recovered files retain their original contents.
 
-## Model Design
+## Running the original workflow
 
-### 1. Segmentation Model
+The three Python files are **Google Colab notebook exports**, preserved unchanged. They contain `drive.mount`, hardcoded Drive paths, and notebook shell commands beginning with `!`; they require adaptation before execution as ordinary `.py` programs.
 
-The segmentation stage uses **U-Net** from `segmentation-models-pytorch` with:
-- **Encoder**: `resnet34`
-- **Pretrained weights**: ImageNet
-- **Input channels**: 3
-- **Output channels**: 1
-- **Loss**: `BCEWithLogitsLoss`
-- **Optimizer**: Adam
+### 1. Prepare the environment and data
 
-Training performance is tracked with:
-- training loss
-- **Dice score**
+The original running guide lists Python 3.9+, PyTorch 1.13.1 with CUDA 11.6, torchvision 0.14.1, and `segmentation-models-pytorch` 0.3.3 as its reference environment. It also lists NumPy, pandas, Pillow, Matplotlib, and tqdm. This historical environment has not been rerun or independently validated in this results update.
 
-### 2. Classification Model
+Prepare an RGB image directory, a matching mask directory, and a CSV with the columns `image_name` and `label`. Image and mask filenames must match. The scripts filter out rows for which either file is missing; check the reported sample count. The dataset is not included in this repository.
 
-The classification stage uses a modified **ResNet18** with:
-- pretrained ImageNet initialization
-- first convolution changed from **3 channels to 4 channels**
-- final fully connected layer changed to **3 output classes**
-
-The classifier takes:
-- 3 RGB channels from the original image
-- 1 binary mask channel from segmentation
-
-Training performance is tracked with:
-- training loss
-- classification accuracy
-
----
-
-## Data Format
-
-The code assumes three components:
-
-1. **Original pathology images**
-2. **Binary masks** for lesion regions
-3. **A CSV label file** containing:
-   - `image_name`
-   - `label`
-
-Expected behaviour in the scripts:
-- image file names and mask file names must match
-- masks are loaded as grayscale images and binarized
-- class labels are integer-encoded
-
----
-
-## Preprocessing and Augmentation
-
-The current implementation includes:
-- resizing and square padding
-- ImageNet normalization for RGB images
-- nearest-neighbour resizing for masks
-- synchronized image-mask augmentation
-
-Augmentations include:
-- random horizontal flip
-- random vertical flip
-- random rotation by `0°, 90°, 180°, 270°`
-
-This keeps the geometric correspondence between image content and mask annotations.
-
----
-
-## Training Workflow
-
-### Step 1: Train the U-Net
-
-Run:
-
-```bash
-python gastric_cancer_u_net_train.py
-```
-
-Outputs:
-- U-Net training loss curve
-- Dice score curve
-- saved segmentation weights (`U_Net.pth`)
-
-### Step 2: Train the ResNet classifier
-
-Run:
-
-```bash
-python gastric_cancer_resnet_train.py
-```
-
-Outputs:
-- classification loss curve
-- accuracy curve
-- saved classifier weights (`ResNet.pth`)
-
-### Step 3: Run inference
-
-Run:
-
-```bash
-python gastric_cancer_main.py
-```
-
-Outputs:
-- predicted segmentation mask
-- predicted class label
-- class probabilities
-- a 3-panel visualisation:
-  - original image
-  - predicted mask
-  - classification result
-
----
-
-## Environment
-
-This project was originally developed in **Google Colab** and the scripts still contain Colab-specific components such as:
-- `drive.mount('/content/drive')`
-- Google Drive file paths
-- notebook-export formatting
-- shell commands such as `!pip install ...`
-
-Recommended core dependencies include:
-- Python 3.9+
-- PyTorch
-- torchvision
-- segmentation-models-pytorch
-- numpy
-- pandas
-- Pillow
-- matplotlib
-- tqdm
-
----
-
-## Notes on Reproducibility
-
-The repository currently contains code only.
-It does **not** include:
-- the training dataset
-- trained model weights
-- a packaged local configuration
-
-To run the code locally, you will need to:
-1. replace Google Drive paths with local paths
-2. provide your own dataset in the expected format
-3. save model weights to a local `./models/` directory or another custom path
-
-Because the scripts were exported directly from Colab notebooks, a natural next step would be to refactor them into a cleaner project structure with:
-- `requirements.txt`
-- reusable dataset / model modules
-- configurable paths
-- train / inference entry points
-
----
-
-## What This Repository Demonstrates
-
-This project demonstrates practical experience with:
-- **PyTorch-based medical image analysis**
-- **U-Net segmentation**
-- **CNN classification with structural priors**
-- **histopathology image preprocessing**
-- **custom dataset construction**
-- **Google Colab prototyping for deep learning workflows**
-
-More broadly, it reflects an attempt to combine **computer vision methods** with a **biomedical imaging task** in an interpretable, pipeline-based way.
-
----
-
-## Future Improvements
-
-Possible next steps include:
-- adding a validation split and test evaluation
-- reporting quantitative metrics more systematically
-- packaging the code for local reproducibility
-- saving example outputs directly in the repository
-- replacing notebook-export scripts with modular Python files
-
----
-
-## Disclaimer
-
-This repository is a **course / project implementation repository**, not a clinical tool.
-It is intended for learning, experimentation, and portfolio demonstration.
-
-# 胃癌病理图像的分割与分类双阶段深度学习流程。
-
-## 项目简介
-
-本项目实现了一个面向胃癌病理图像分析的两阶段深度学习流程：先使用 U-Net 对病灶区域进行分割，再将原始 RGB 图像与预测得到的 mask 组合为 4 通道输入，送入 ResNet 进行三分类。
-
-这个设计的核心思路是：先显式提取病灶区域，再把空间定位信息提供给分类器，从而让分类模型不只是“看整张图”，而是更聚焦于潜在病变区域。
-
-## 方法概览
-
-整体流程如下：
-
-1. 输入胃癌病理图像
-2. 使用 U-Net 生成病灶区域预测 mask
-3. 将原始 RGB 图像与 mask 拼接为 4 通道输入
-4. 使用 ResNet 输出分类结果
-5. 可视化原图、预测 mask 与最终分类结果
-
-## 仓库结构
+The original training paths are:
 
 ```text
-Gastric_Cancer/
-├── gastric_cancer_u_net_train.py
-├── gastric_cancer_resnet_train.py
-├── gastric_cancer_main.py
-└── README.md
+/content/drive/MyDrive/Trivial Files/train_org_image_100
+/content/drive/MyDrive/Trivial Files/train_mask_100
+/content/drive/MyDrive/Trivial Files/train_label.csv
 ```
 
-### 文件说明
+### 2. Train or download the checkpoints
 
-- **gastric_cancer_u_net_train.py**  
-  训练 U-Net 分割模型，用于预测病理图像中的癌变区域。
+For training, use the segmentation export first, followed by the classifier export. When using Colab, paste/import the exported code into notebook cells so that the `!pip` and `!cp` commands are handled as notebook commands. Update the Drive paths and epoch count for your experiment.
 
-- **gastric_cancer_resnet_train.py**  
-  训练 ResNet 分类模型。分类器输入为 4 通道图像，即原始 RGB 图像加上 mask。
+For inference with the archived models, download both checkpoints from the [Release](https://github.com/LingQingyang/Supervised-Computer-Vision-for-Gastric-Cancer-Histopathology/releases/tag/archived-training-results-v1) and place them where the inference script expects them:
 
-- **gastric_cancer_main.py**  
-  端到端推理脚本。先运行 U-Net 生成 mask，再调用 ResNet 完成分类，并输出可视化结果。
-
-## 模型设计
-
-### 1. 分割模型
-
-- 架构：U-Net
-- 编码器：ResNet34
-- 输入：3 通道 RGB 图像
-- 输出：1 通道二值 mask
-- 训练指标：Dice Score
-- 典型用途：定位疑似癌变区域
-
-### 2. 分类模型
-
-- 架构：ResNet18
-- 输入：4 通道图像（RGB + mask）
-- 输出：3 个类别
-- 训练指标：Accuracy
-- 典型用途：根据原图与分割结果联合判断图像类别
-
-## 项目特点
-
-- **双阶段流程**：先分割、后分类，而不是直接端到端三分类
-- **显式引入空间先验**：通过 mask 将病灶位置信息传递给分类器
-- **适合教学与课程项目展示**：结构清晰，便于说明分割与分类如何协同工作
-- **便于后续扩展**：可进一步替换骨干网络、加入更强的数据增强或尝试端到端联合训练
-
-## 数据要求
-
-本仓库当前主要展示模型实现与推理流程，不包含公开数据集文件。
-
-运行本项目需要准备以下数据：
-
-- 原始病理图像
-- 对应的分割 mask
-- 图像标签文件（用于分类训练）
-
-并保证：
-
-- 原图与 mask 文件一一对应
-- 文件命名一致
-- 标签文件能够正确映射图像名称与类别标签
-
-## 运行说明
-
-### 1. 训练分割模型
-
-运行：
-
-```bash
-python gastric_cancer_u_net_train.py
+```text
+/content/drive/MyDrive/AI_Models/U_Net.pth
+/content/drive/MyDrive/AI_Models/ResNet.pth
 ```
 
-### 2. 训练分类模型
+Check the files against [SHA256SUMS.txt](results/SHA256SUMS.txt). For local execution, remove the Drive mounting code, replace notebook shell commands with terminal commands, and update the dataset and checkpoint paths. The checkpoints contain CUDA storage references; use `map_location=device` when loading on a different device, especially a CPU.
 
-运行：
+### 3. Run single-image inference
 
-```bash
-python gastric_cancer_resnet_train.py
-```
+In `gastric_cancer_main.py`, set `test_image_path` to an **individual image file**. The current default names a directory, but the function calls `Image.open` and accepts one image at a time. The workflow produces a binary mask, three class probabilities, and a three-panel visualisation.
 
-### 3. 运行端到端推理
+Training resizes and square-pads images, whereas the original inference transform directly resizes to a square. Align these transforms before undertaking a reproducibility or generalisation study.
 
-运行：
+## Scope and next steps
 
-```bash
-python gastric_cancer_main.py
-```
+This repository documents a supervised computer vision prototype and its recovered training artefacts. This update does not rerun training or inference. The supplied archive contains no validation/test curves, confusion matrix, inference examples, or evidence of improvement over an RGB-only baseline.
 
-推理脚本会执行以下步骤：
+Useful extensions are a documented patient-aware data split, held-out evaluation of the full pipeline, an RGB-only comparison, classifier training with predicted masks, consistent preprocessing, and reproducible configuration and logs.
 
-- 加载训练好的 U-Net 与 ResNet 权重
-- 对输入图像生成预测 mask
-- 构造 4 通道输入
-- 输出分类概率与预测类别
-- 可视化原图、mask 和最终结果
+## 中文简介
 
-## 依赖环境
+这是一个胃癌病理影像实习项目：使用 U-Net 进行病灶分割，再将 RGB 图像与 mask 拼接为四通道输入，通过 ResNet18 完成三分类。分类器训练时使用标注 mask，推理时使用 U-Net 预测的 mask。
 
-本项目最初在 Google Colab 环境中开发，核心依赖包括：
-
-- Python
-- PyTorch
-- torchvision
-- segmentation-models-pytorch
-- numpy
-- pandas
-- Pillow
-- matplotlib
-- tqdm
-
-如需本地运行，建议先整理：
-
-- 数据路径
-- 模型权重保存路径
-- Colab 专用代码（如 Google Drive 挂载）
-
-## 当前仓库的边界
-
-这个仓库更适合作为课程项目 / 医学图像学习项目的展示页，而不是一个已经完全产品化或可直接复现的研究代码仓库。
-
-当前公开内容主要展示：
-
-- 双阶段医学图像分析流程
-- U-Net 分割与 ResNet 分类的组合思路
-- 从训练到推理的基本实现框架
-
-若要进一步提升可复现性，可以继续补充：
-
-- 统一的数据目录结构
-- `requirements.txt`
-- 示例输入与输出图
-- 训练结果指标汇总
-- 更清晰的本地运行说明
-
-## 适用场景
-
-这个项目适合用于展示以下能力：
-
-- 深度学习基础
-- 医学图像处理
-- 图像分割与图像分类
-- PyTorch 模型训练与推理
-- 将分割结果用于下游分类任务的 pipeline 设计
-
-## 后续可扩展方向
-
-- 将分割与分类做成联合训练框架
-- 尝试更多分类骨干网络，例如 EfficientNet 或 ConvNeXt
-- 引入更系统的数据增强策略
-- 增加模型评估指标，如 precision、recall、F1-score、IoU
-- 支持批量推理与结果导出
+本次补充了找回的 **4 张训练曲线和 2 个模型权重文件**。曲线直接展示于本页，权重可从 [Release](https://github.com/LingQingyang/Supervised-Computer-Vision-for-Gastric-Cancer-Histopathology/releases/tag/archived-training-results-v1) 下载，原有三个代码文件保持不变。图中记录了 20 个 epoch，现有代码默认配置为 5 个 epoch；具体实验配置与原始数值日志未包含在压缩包中。上述 Dice 和准确率属于训练指标，不能作为测试集或完整推理流程的评估结果。
